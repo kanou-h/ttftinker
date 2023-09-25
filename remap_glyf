@@ -65,7 +65,7 @@ open(IN, $src_cmap) || die("open: $src_cmap: $!");
 while(<IN>) {
     chop; 
     # $src_glyfnum is a mapping from CHARACTER_CODE to GLYPH_NUMBER in the source font.
-    if (!/^\s*\#/) { split; $src_glyfnum{$_[0]} = $_[1]; }
+    if (!/^\s*\#/) { @_ = split; $src_glyfnum{$_[0]} = $_[1]; }
 }
 close(IN);
 
@@ -79,7 +79,7 @@ while(<IN>) {
     chop; 
     if (!/^\s*\#/) { 
 	# $dest_charnum is a mapping from GLYPH_NUMBER to CHARACTER_CODE in the dest font.
-	split; $dest_charnum{$_[1]} = $_[0]; 
+	@_= split; $dest_charnum{$_[1]} = $_[0]; 
 	$max_dest_glyfnum = $_[1] if ($max_dest_glyfnum < $_[1]);
     }
 }

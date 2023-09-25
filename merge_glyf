@@ -76,7 +76,7 @@ for($mrg = 0; ; $mrg++) {
     open(IN, $cmap) || die("open: $src_cmap: $!");
     while(<IN>) {
 	chop;
-	if (!/^\s*\#/) { split; $cmap_table{$_[0]} = $_[1]; }
+	if (!/^\s*\#/) { @_ = split; $cmap_table{$_[0]} = $_[1]; }
     }
     close(IN);
     

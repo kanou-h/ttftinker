@@ -18,7 +18,7 @@ sub define_form($) {
     foreach $_ (split("\n", $_[0])) {
 	my $c;
 	$c = $1 if (s/(\#.*)$//);
-	split(/\s+/);
+	@_ = split(/\s+/);
 	if (2 <= @_) {
 	    push(@form_fields, $_[1]);
 	    push(@form_comments, $c);
@@ -101,7 +101,7 @@ sub make_form($@) {
     open(IN, $ff) || die("open: $ff: $!");
     %form_val = ();
     while($_ = getline(IN)) {
-	split(/\s+/);
+	@_ = split(/\s+/);
 	next if (@_ < 2);
 	make_field1(@_);
     }

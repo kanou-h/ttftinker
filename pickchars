@@ -49,7 +49,7 @@ sub font1 {
 $f=shift(@ARGV);
 open(IN, $f) || die("open: $f: $!");
 while($_ = getline(IN)) {
-    split(/\s+/);
+    @_ = split(/\s+/);
     $enc{eval($_[0])} = 1;
 }
 close(IN);

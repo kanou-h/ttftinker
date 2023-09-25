@@ -46,7 +46,7 @@ sub readenc($) {
     @enc = ();
     open(IN, $_[0]) || die("open: $_[0]: $!");
     while($_ = getline(IN)) {
-	split(/\s+/);
+	@_ = split(/\s+/);
 	$enc[eval($_[0])] = eval($_[1]);
     }
     close(IN);

@@ -11,7 +11,7 @@
 
 while(<>) {
     chop;
-    split(/\s+/);
+    @_ = split(/\s+/);
     my $x = eval($_[0]);
     if (256 <= $x) {
 	# not optimized for readers' convenience.

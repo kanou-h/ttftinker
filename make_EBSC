@@ -28,7 +28,7 @@ $ARGV[0] || usage();
 open(IN, $ARGV[0]) || die("open: $ARGV[0]: $!");
 %metric = ();
 while($_ = getline(IN)) {
-    split(/:\s+/);
+    @_ = split(/:\s+/);
     $metric{$_[0]} = eval($_[1]);
     if ($metric{'ppem'} && $metric{'subst'} &&
 	$metric{'ascender'} && $metric{'descender'} && $metric{'widmax'}) {

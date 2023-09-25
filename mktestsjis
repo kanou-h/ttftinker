@@ -23,7 +23,7 @@ $c = 0;
 $x = 0;
 while(<>) {
     $x0 = $x;
-    chop; split; $x = eval($_[0]);
+    chop; @_ = split; $x = eval($_[0]);
     next if ($x < 256);
     $c0 = $c;
     $c = $x % 16;

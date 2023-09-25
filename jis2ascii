@@ -11,7 +11,7 @@
 
 while(<>) {
     chop;
-    split(/\s+/);
+    @_ = split(/\s+/);
     my $x = eval($_[0]);
     printf "0x%04x\t%d\n", $x, $_[1] if ($x < 256);
 }

@@ -8061,7 +8061,7 @@ if ($ARGV[0] eq '-c') {
 } else {
     while(<>) {
 	chop;
-	split(/\s+/);
+	@_ = split(/\s+/);
 	$x = $map{jis2sjis(eval($_[0]))};
 	if ($x) {
 	    printf "0x%04x\t%d\n", $x, $_[1];
