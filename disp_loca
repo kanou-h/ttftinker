@@ -1,0 +1,31 @@
+#!/usr/bin/env perl
+# $Id: disp_loca,v 1.1 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_loca loca
+#    or: disp_loca -    (from Stdin)
+#
+# display the content of loca (Location) table.
+#
+#	2003/1/9, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage() {
+    print "usage: disp_loca loca\n";
+    exit 1;
+}
+
+$ARGV[0] || usage();
+
+# read loca
+($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,
+$size,$atime,$mtime,$ctime,$blksize,$blocks) = stat($ARGV[0]);
+$nchars = ($size / 4)-1;
+ropen($ARGV[0]);
+for(my $i = 0; $i < $nchars+1; $i++) {
+    printf "%d: 0x%04lx\n", $i, ruint32();
+}
+rclose();

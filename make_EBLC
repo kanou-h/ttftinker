@@ -1,0 +1,234 @@
+#!/usr/bin/env perl
+# $Id: make_EBLC,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: usage: make_EBLC size1 BDF1 size2 BDF2 ... sizen BDFn
+#
+# build an EBLC(Embedded Bitmap LoCation, or bloc in MacOS) table from BDF(BIT)
+# sets and dump it into stdout.
+#
+# BUGS: currently only indexFormat 1 is supported.
+#       since it uses BDF as a source, vertical metrics isn't cared.
+#       many parameters are fixed.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+require 'lib_metric.pl';
+
+sub usage() {
+    print "usage: make_EBLC size1 BDF1 size2 BDF2 ... sizen BDFn\n";
+    exit 1;
+}
+
+@ppem = ();
+@bdfs = ();
+0 == @ARGV && usage();
+while(0 < @ARGV) {
+    push(@ppem, shift(@ARGV));
+    push(@bdfs, shift(@ARGV));
+}
+
+
+# subtable size : 48bytes
+sub subtable1($$$$$$$$$$$$$$$) {
+    my ($csize, 
+	$subtable,
+	$subtable_chars,
+	$subtable_start,
+	$subtable_len,
+	
+	$HminOriginSB,
+	$HminAdvanceSB,
+	$HmaxBeforeBL,
+	$HminAfterBL,
+	$HwidMax,
+	
+	$VminOriginSB,
+	$VminAdvanceSB,
+	$VmaxBeforeBL,
+	$VminAfterBL,
+	$VwidMax) = @_;
+
+    # indexSubTableArrayOffset
+    wuint32((8 + $total_subtables*48) + $subtable_start);
+    # indexTableSize
+    wuint32(8 + $subtable_len);
+    # numberOfIndexSubTables : 1
+    wuint32(1);
+    # colorRef : 0
+    wuint32(0);
+    # hori
+    wsbitLineMetrics($HmaxBeforeBL,	# ascender
+		     $HminAfterBL,	# descender
+		     $HwidMax,		# widmax
+		     1,0,0,		# calet p/q, +offset
+		     $HminOriginSB, $HminAdvanceSB, 
+		     $HmaxBeforeBL, $HminAfterBL);
+    # vert (dirty assumption!)
+    wsbitLineMetrics($HwidMax,		# ascender
+		     0,			# descender
+		     $VwidMax,		# widmax
+		     0,1,0,		# calet p/q, +offset
+		     $VminOriginSB, $VminAdvanceSB,
+		     $VmaxBeforeBL, $VminAfterBL);
+    # startGlyphIndex
+    wuint16(0);
+    # endGlyphIndex
+    wuint16($subtable_chars-1);
+    # ppemX : point size
+    wuint8($csize);
+    # ppemY : point size
+    wuint8($csize);
+    # bitDepth : 1
+    wuint8(1);
+    # flags : 0x01 (flgHorizontal)
+    wuint8(0x01);
+}
+
+sub initialize1() {
+    $index_subtable = '';
+    $index_subtable_chars = 0;
+    $bdat_local_offset = 0;
+
+    $HminOriginSB = 999;
+    $HminAdvanceSB = 999;
+    $HmaxBeforeBL = -999;
+    $HminAfterBL = 999;
+    $HwidMax = 0;
+    
+    $VminOriginSB = 0;
+    $VminAdvanceSB = 999;
+    $VmaxBeforeBL = 0;
+    $VminAfterBL = 999;
+    $VwidMax = 0;
+}
+
+# format 1
+sub indexSubTable1($) {
+    open(IN, $_[0]) || die("open: $_[0]: $!");
+    my $bw, $bh, $hox, $hoy, $hbytes, $had, $vad;
+    while(<IN>) {
+	chop;
+	my @F = split(/\s+/);
+	my $c = shift(@F);
+	if ($c eq 'BBX') {
+	    ($bw, $bh, $hox, $hoy) = @F;
+	    # HminOriginSB : min. of $hox
+	    # HminAdvanceSB : min. of $had-$hox-$bw
+	    # HmaxBeforeBL : max of $hoy+$bh
+	    # HminAfterBL : min. of $hoy
+	    $HminOriginSB = $hox if ($hox < $HminOriginSB);
+	    $HminAdvanceSB = $had-$hox-$bw if ($had-$hox-$bw < $HminAdvanceSB);
+	    $HmaxBeforeBL = $hoy+$bh if ($HmaxBeforeBL < $hoy+$bh);
+	    $HminAfterBL = $hoy if ($hoy < $HminAfterBL);
+	    $HwidMax = $bw if ($HwidMax < $bw);
+
+	    # VminOriginSB = 0
+	    # VminAdvanceSB = min. of $bh
+	    # VmaxBeforeBL = 0
+	    # VminAfterBL = min. of $bw
+	    $VminAdvanceSB = $bh if ($bh < $VminAdvanceSB);
+	    $VminAfterBL = $bw if ($bw < $VminAfterBL);
+	    $VwidMax = $bh if ($VwidMax < $bh);
+	    
+	    $hbytes = int(($bw+7)/8);
+	} elsif ($c eq 'DWIDTH') {
+	    ($had, $vad_dummy) = @F;
+	} elsif ($c eq 'ENDCHAR') {
+	    $index_subtable .= pack('N', $bdat_local_offset);
+	    $index_subtable_chars++;
+	    $bdat_local_offset += $hbytes * $bh + 8;
+	}
+    }
+    close(IN);
+}
+
+## initialize
+
+$index_subtable_offset = 0;
+$bdat_total_offset = 4;
+
+initialize1();
+for(my $i = 0; $i < 0+@ppem; $i++) {
+    indexSubTable1($bdfs[$i]);
+    
+    my $len = 8 + 8 + length($index_subtable);
+    push(@map_csizes, $ppem[$i]);
+    push(@map_index_subtables, $index_subtable);
+    push(@map_index_subtable_chars, $index_subtable_chars);
+    push(@map_index_subtable_starts, $index_subtable_offset);
+    push(@map_index_subtable_lens, $len);
+    push(@map_index_subtable_bdat_total_offset, $bdat_total_offset);
+    
+    push(@map_HminOriginSB, $HminOriginSB);
+    push(@map_HminAdvanceSB, $HminAdvanceSB);
+    push(@map_HmaxBeforeBL, $HmaxBeforeBL);
+    push(@map_HminAfterBL, $HminAfterBL);
+    push(@map_HwidMax, $HwidMax);
+    
+    push(@map_VminOriginSB, $VminOriginSB);
+    push(@map_VminAdvanceSB, $VminAdvanceSB);
+    push(@map_VmaxBeforeBL, $VmaxBeforeBL);
+    push(@map_VminAfterBL, $VminAfterBL);
+    push(@map_VwidMax, $VwidMax);
+    
+    $index_subtable_offset += $len;
+    $bdat_total_offset += $bdat_local_offset;
+    initialize1();
+}
+
+$total_subtables = 0+@map_csizes;
+
+## write
+
+wopen('&STDOUT');
+
+# version number (0x00020000 fixed)
+wuint32(0x00020000);
+# num of subtables
+wuint32($total_subtables);
+
+for(my $i = 0; $i < $total_subtables; $i++) {
+    subtable1($map_csizes[$i],
+	       $map_index_subtables[$i],
+	       $map_index_subtable_chars[$i],
+	       $map_index_subtable_starts[$i],
+	       $map_index_subtable_lens[$i],
+
+	       $map_HminOriginSB[$i],
+	       $map_HminAdvanceSB[$i],
+	       $map_HmaxBeforeBL[$i],
+	       $map_HminAfterBL[$i],
+	       $map_HwidMax[$i],
+	       
+	       $map_VminOriginSB[$i],
+	       $map_VminAdvanceSB[$i],
+	       $map_VmaxBeforeBL[$i],
+	       $map_VminAfterBL[$i],
+	       $map_VwidMax[$i]);
+}
+
+for(my $i = 0; $i < $total_subtables; $i++) {
+    # firstGlyphIndex
+    wuint16(0);
+    # lastGlyphIndex
+    wuint16($map_index_subtable_chars[$i]-1);
+    # additionalOffsetToIndexSubtable
+    wuint32(8);
+
+    # indexSubtable
+
+    # indexformat: 1
+    wuint16(1);
+    # imageformat: 6
+    wuint16(6);
+    # imageDataOffset
+    wuint32($map_index_subtable_bdat_total_offset[$i]);
+    # offsetArray
+    wstrn($map_index_subtables[$i]);
+}
+
+wclose();

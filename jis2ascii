@@ -1,0 +1,17 @@
+#!/usr/bin/env perl
+# $Id: jis2ascii,v 1.3 2002/09/14 21:07:03 euske Exp $
+#
+# usage: jis2ascii encodings
+#
+# convert jis charcode into ascii.
+#
+#	2002/2, by 1@2ch
+#	* public domain *
+#
+
+while(<>) {
+    chop;
+    split(/\s+/);
+    my $x = eval($_[0]);
+    printf "0x%04x\t%d\n", $x, $_[1] if ($x < 256);
+}

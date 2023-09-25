@@ -1,0 +1,285 @@
+#!/usr/bin/env perl
+# $Id: disp_EBLC_EBDT,v 1.5 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_EBLC_EBDT EBLC [EBDT index#]
+#    or: disp_EBLC_EBDT bloc [bdat index#]
+#
+# display the bitmap metrics EBLC(Embedded Bitmap LoCation, or bloc in MacOS)
+# and EBDT(Embedded Bitmap DaTa, or bdat in MacOS) table.
+#
+# output format is BDF(BIT)-like (but not compatible exactly).
+#
+# NOTE: files should be seekable! (not from stdin)
+#
+# BUGS: currently only indexFormat 1,2,3,5 are supported.
+#       currently only imageFormat 5,6,7 are supported.
+#       display only one bitmap-table at once.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+require 'lib_metric.pl';
+
+
+sub usage() {
+    print "usage:\n";
+    print "  location list: disp_EBLC_EBDT EBLC\n";
+    print "  bitmap       : disp_EBLC_EBDT EBLC EBDT index\n";
+    exit 1;
+}
+
+
+sub byteFormat(@) {
+    my ($h, $w, $hbx, $hby, $had, $vbx, $vby, $vad) = @_;
+    my $bw = int(($w+7)/8);
+    my $s = unpack('B' . ($bw*$h*8), rstrn($bw * $h));
+    $s =~ tr/0/./;
+    $s =~ tr/1/\@/;
+    print "BITMAP\n";
+    for(my $i = 0; $i < $h; $i++) {
+	print substr($s, $i*$bw*8, $w),"\n";
+    }
+    print "ENDCHAR\n";
+}
+
+sub bitFormat(@) {
+    my ($h, $w, $hbx, $hby, $had, $vbx, $vby, $vad) = @_;
+    my $len = int(($w*$h+7)/8);
+    my $s = unpack('B' . ($len*8), rstrn($len));
+    $s =~ tr/0/./;
+    $s =~ tr/1/\@/;
+    print "BITMAP\n";
+    for(my $i = 0; $i < $h; $i++) {
+	print substr($s, $i*$w, $w),"\n";
+    }
+    print "ENDCHAR\n";
+}
+
+
+%bitmap_formats = ();
+%bitmap_offsets = ();
+%bitmap_metrics = ();
+sub loadIndexSubTable($$) {
+    $indexFormat = ruint16();
+    $imageFormat = ruint16();
+    $imageDataOffset = ruint32();
+    my ($first, $last) = @_;
+    my $len = $last-$first+1;
+    
+    # currently only indexFormat 1,2,3,5 are supported.
+    if ($indexFormat == 1) {
+	# indexSubTable1: variable metrics glyphs with 4 byte offsets
+	for(my $i = $first; $i <= $last; $i++) {
+	    $bitmap_formats{$i} = $imageFormat;
+	    $bitmap_offsets{$i} = ruint32() + $imageDataOffset;
+	}
+    } elsif ($indexFormat == 2) {
+	# indexSubTable2: all glyphs have identical metrics and fixed imagesize
+	my $imageSize = ruint32();
+        my @metrics = rbigGlyphMetrics();
+	for(my $i = $first; $i <= $last; $i++) {
+	    $bitmap_formats{$i} = $imageFormat;
+	    $bitmap_offsets{$i} = ($i-$first) * $imageSize + $imageDataOffset;
+	    $bitmap_metrics{$i} = \@metrics;
+	}
+    } elsif ($indexFormat == 3) {
+	# indexSubTable3: variable metrics glyphs with 2 byte offsets
+	for(my $i = $first; $i <= $last; $i++) {
+	    $bitmap_formats{$i} = $imageFormat;
+	    $bitmap_offsets{$i} = ruint16() + $imageDataOffset;
+	}
+    } elsif ($indexFormat == 5) {
+	# indexSubTable5: constant metrics glyphs with sparse glyph codes
+	my $imageSize = ruint32();
+        my @metrics = rbigGlyphMetrics();
+	my $numGlyphs = ruint32();
+	for(my $i = 0; $i < $numGlyphs; $i++) {
+	    my $c = ruint16();
+	    $bitmap_formats{$c} = $imageFormat;
+	    $bitmap_offsets{$c} = $i * $imageSize + $imageDataOffset;
+	    $bitmap_metrics{$c} = \@metrics;
+	}
+    } else {
+	print "unknown index format: $indexFormat\n";
+    }
+}
+
+sub loadBitmapSizeTable() {
+    # 48bytes
+    my $indexSubTableArrayOffset = ruint32();	# 4
+    my $indexTableSize = ruint32();		# 4
+    my $numberOfIndexSubTables = ruint32();	# 4
+    my $colorRef = ruint32();			# 4
+    my @hori = rsbitLineMetrics();		# 12
+    my @vert = rsbitLineMetrics();		# 12
+    my $startGlyphIndex = ruint16();		# 2
+    my $endGlyphIndex = ruint16();		# 2
+    my $ppemX = ruint8();			# 1
+    my $ppemY = ruint8();			# 1
+    my $bitDepth = ruint8();			# 1
+    my $flags = ruint8();			# 1
+
+    for(my $i = 0; $i < $numberOfIndexSubTables; $i++) {
+	rgoto($indexSubTableArrayOffset + $i*(2+2+4));
+	$first = ruint16();
+	$last = ruint16();
+	$addoffset = ruint32();
+	rgoto($indexSubTableArrayOffset + $addoffset);
+	loadIndexSubTable($first, $last);
+    }
+}
+
+
+sub dispIndexSubTable($$) {
+    my ($first, $last) = @_;
+    my $indexFormat = ruint16();
+    my $imageFormat = ruint16();
+    my $imageDataOffset = ruint32();
+    
+    # currently only indexFormat 1,2,3,5 are supported.
+    if ($indexFormat == 1) {
+	# indexSubTable1: variable metrics glyphs with 4 byte offsets
+	print "index1 image$imageFormat\n";
+    } elsif ($indexFormat == 2) {
+	# indexSubTable2: all glyphs have identical metrics
+	my $imageSize = ruint32();
+        my @metrics = rbigGlyphMetrics();
+	print "index2 image$imageFormat imageSize=$imageSize ";
+        print strBigGlyphMetrics(@metrics), "\n";
+    } elsif ($indexFormat == 3) {
+	# indexSubTable3: variable metrics glyphs with 2 byte offsets
+	print "index3 image$imageFormat\n";
+    } elsif ($indexFormat == 5) {
+	# indexSubTable5: constant metrics glyphs with sparse glyph codes
+	my $imageSize = ruint32();
+        my @metrics = rbigGlyphMetrics();
+	my $numGlyphs = ruint32();
+	print "index5 image$imageFormat imageSize=$imageSize ";
+        print strBigGlyphMetrics(@metrics), "\n";
+    } else {
+	print "unknown index format: $indexFormat\n";
+    }
+}
+
+sub dispBitmapSizeTable() {
+    my $indexSubTableArrayOffset = ruint32();
+    my $indexTableSize = ruint32();
+    my $numberOfIndexSubTables = ruint32();
+    my $colorRef = ruint32();
+    my @hori = rsbitLineMetrics();
+    my @vert = rsbitLineMetrics();
+    my $startGlyphIndex = ruint16();
+    my $endGlyphIndex = ruint16();
+    my $ppemX = ruint8();
+    my $ppemY = ruint8();
+    my $bitDepth = ruint8();
+    my $flags = ruint8();
+    
+    print "indexTableSize:    $indexTableSize\n";
+    print "numIndexSubTables: $numberOfIndexSubTables\n";
+    dispsbitLineMetrics('hori_', @hori);
+    dispsbitLineMetrics('vert_', @vert);
+    print "color:             ($colorRef, $bitDepth)\n";
+    print "glyph:             $startGlyphIndex - $endGlyphIndex\n";
+    print "ppem:              ($ppemX, $ppemY)\n";
+    printf "flags:             0x%02x\n", $flags;
+    
+    rpos_push();
+    for(my $i = 0; $i < $numberOfIndexSubTables; $i++) {
+	rgoto($indexSubTableArrayOffset + $i*(2+2+4));
+	$first = ruint16();
+	$last = ruint16();
+	$addoffset = ruint32();
+	rgoto($indexSubTableArrayOffset + $addoffset);
+	print "subtable$i: $first-$last ";
+	dispIndexSubTable($first, $last);
+    }
+    rpos_pop();
+    print "\n";
+}
+
+
+$blocfile = shift(@ARGV) || usage();
+$bdatfile = shift(@ARGV);
+($bdatfile && 0 == @ARGV) && usage();
+$index = shift(@ARGV);
+
+
+# only for listing
+
+if (! $bdatfile) {
+    ropen($blocfile);
+    $bloc_version = ruint32();
+    $numsizes = ruint32();
+    printf "bloc_version: 0x%08lx\n", $version;
+    printf "bitmapSizeTables: $numsizes\n\n";
+    for(my $i = 0; $i < $numsizes; $i++) { 
+	print "bitmapSizeTable$i:\n";
+	dispBitmapSizeTable();
+    }
+    rclose();
+    exit;
+}
+
+
+
+# read bloc
+
+ropen($blocfile);
+rgoto(48 * $index + 8);
+loadBitmapSizeTable();
+rclose();
+
+# read bdat
+
+ropen($bdatfile);
+$bdat_version = ruint32();
+printf "COMMENT bdat_version 0x%08lx\n", $version;
+
+foreach $c (sort {$a <=> $b} keys(%bitmap_formats)) {
+    rgoto($bitmap_offsets{$c});
+
+    # currently only imageFormat 5,6,7 are supported.
+    my $imageFormat = $bitmap_formats{$c};
+    print "STARTCHAR\n";
+    printf "COMMENT GLYPH %d IMAGEFORMAT %d\n", $c, $imageFormat;
+    
+    if ($imageFormat == 1) {
+	# proportionalFormat1:
+	# Small metrics and byte-aligned images.
+	my @metrics = rsmallGlyphMetrics();
+        bdfSmallGlyphMetrics(@metrics);
+	byteFormat(@metrics);
+    } elsif ($imageFormat == 2) {
+	# proportionalFormat2:
+	# Small metrics and bit-aligned images.
+	my @metrics = rsmallGlyphMetrics();
+        bdfSmallGlyphMetrics(@metrics);
+	bitFormat(@metrics);
+    } elsif ($imageFormat == 5) {
+	# monoFormat5: 
+	# Just bit-aligned images, metrics are in the bitmap location table.
+	my $r_metrics = $bitmap_metrics{$c};
+        bdfBigGlyphMetrics(@{$r_metrics});
+	bitFormat(@{$r_metrics});
+    } elsif ($imageFormat == 6) {
+	# proportionalByteFormat6: 
+	# Big metrics and byte-aligned images.
+	my @metrics = rbigGlyphMetrics();
+        bdfBigGlyphMetrics(@metrics);
+	byteFormat(@metrics);
+    } elsif ($imageFormat == 7) {
+	# proportionalBitFormat7: 
+	# Big metrics and bit-aligned images.
+	my @metrics = rbigGlyphMetrics();
+        bdfBigGlyphMetrics(@metrics);
+	bitFormat(@metrics);
+    } else {
+	print "(unknown format)\n";
+    }
+}
+
+rclose();

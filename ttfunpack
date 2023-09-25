@@ -1,0 +1,62 @@
+#!/usr/bin/env perl
+# $Id: ttfunpack,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: ttfunpack ttf destdir
+#
+# unpack a ttf file and dump the tables into each directory.
+# (if destdir doesn't exist, it would be created)
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+require 'lib_ttfdir.pl';
+
+sub usage {
+    print "usage: $0 ttffile destdir\n";
+    exit 1;
+}
+
+$ttf = shift(@ARGV) || usage();
+$dir = shift(@ARGV) || usage();
+
+ropen($ttf);
+ttf_readdir_from_ttf();
+if ($ttf_is_ttc) {
+    die("doesn't support ttc. use ttcunpack.");
+}
+rclose();
+
+ropen($ttf);
+
+mkdir($dir, 0755);
+chdir($dir) || die("can't make directory: $dir: $!");
+
+# header
+open(OUT, "> ttfdir");
+printf OUT "0x%08lx\n", unpack("N", $ttf_font_type);
+foreach my $t (sort {$ttf_fontdir_offset{$a}<=>$ttf_fontdir_offset{$b}}
+	       @ttf_fontdir_types) {
+    my $f = $t;    
+    $f =~ s/_/_u/g;
+    $f =~ s/\//_s/g;
+    $f =~ s/^ *//;
+    $f =~ s/ *$//;
+    print OUT "$f\n";
+}
+close(OUT);
+
+# dump each type
+foreach my $t (@ttf_fontdir_types) {
+    my $f = $t;
+    $f =~ s/_/_u/g;
+    $f =~ s/\//_s/g;
+    $f =~ s/^ *//;
+    $f =~ s/ *$//;
+    wopen($f);
+    ttf_cat_type($t);
+    wclose();
+}
+rclose();

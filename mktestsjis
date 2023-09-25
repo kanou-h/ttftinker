@@ -1,0 +1,39 @@
+#!/usr/bin/env perl
+# $Id: mktestsjis,v 1.3 2002/09/14 21:07:03 euske Exp $
+#
+# usage: mktestsjis cmap-sjis.src
+#
+# generate Shift-JIS character table in html.
+#
+#	2002/2 by 1@2ch
+#	* public domain *
+#
+
+print '<html><head>';
+print '<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">';
+print '</head><body>';
+print '<p><strong>Caution! This is incredibly heavy..</strong>';
+print '<table><tr><td></td>';
+
+for($i = 0; $i < 16; $i++) {
+    printf "<td>%x</td>", $i;
+}
+
+$c = 0;
+$x = 0;
+while(<>) {
+    $x0 = $x;
+    chop; split; $x = eval($_[0]);
+    next if ($x < 256);
+    $c0 = $c;
+    $c = $x % 16;
+    if ($c < $c0 || $x0+15 < $x) {
+	printf "</tr>\n<tr><td>%04x</td>%s", $x & 0xFFF0, "<td></td>" x $c;
+    }
+    print "<td>";
+    print chr(int($x/256));
+    print chr($x % 256);
+    print "</td>";
+}
+
+print "</tr></table></body></html>\n";

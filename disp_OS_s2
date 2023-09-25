@@ -1,0 +1,18 @@
+#!/usr/bin/env perl
+# $Id: disp_OS_s2,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_OS_s2 OS/2
+#    or: disp_OS_s2 -    (from stdin)
+#
+# display the content of OS/2 (OS/2 or Windows compatibility) table.
+# output format is compatible with make_OS_s2.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_form.pl';
+require 'form_os2.pl';
+
+disp_form(@ARGV);

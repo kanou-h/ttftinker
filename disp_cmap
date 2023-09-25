@@ -1,0 +1,183 @@
+#!/usr/bin/env perl
+# $Id: disp_cmap,v 1.5 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_cmap cmap (DONT USE STDIN)
+#
+# display the content of cmap (Character code MAPping) table.
+#
+# NOTE: output format is *NOT* compatible with my make_cmap...
+#       files should be seekable! (not from stdin)
+#
+# BUGS: only format 0,2,4 are supported.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage {
+    print "usage: disp_cmap [-e] cmap [index1 index2 ..]\n";
+    exit 1;
+}
+
+$ARGV[0] || usage();
+$EXPN = 0;
+
+# FORMAT 0
+sub format0() {
+    for(my $i = 0; $i < 256; $i++) {
+	printf "0x%04x:\t%d\n", $i, ruint8();
+    }
+}
+
+# FORMAT 2
+sub format2() {
+    my $headers = 0;
+    my @subHeaderKeys = ();
+    my @firstBytes = ();
+    my @firstCodes = ();
+    my @entryCount = ();
+    my @idDelta = ();
+    for(my $i = 0; $i < 256; $i++) {
+	$subHeaderKeys[$i] = ruint16();
+	#print "subHeaderKeys: ", $subHeaderKeys[$i]/8, "\n";
+	$headers = $subHeaderKeys[$i] if ($headers < $subHeaderKeys[$i]);
+	$firstBytes[$subHeaderKeys[$i]/8] = $i if ($subHeaderKeys[$i]);
+    }
+    $firstBytes[0] = 0;
+    $headers = $headers/8 + 1;
+    for(my $i = 0; $i < $headers; $i++) {
+	push(@firstCodes, ruint16());
+	push(@entryCount, ruint16());
+	push(@idDelta, rsint16());
+	my $pos = rpos();
+	push(@idPos, $pos + ruint16());
+    }
+#    printf "location: 0x%04x\n", $pos0;
+    for(my $i = 0; $i < $headers; $i++) {
+	printf "\nSUBHEADER: 0x%04x-0x%04x\n", $c, $c+$entryCount[$i]-1;
+	print "delta=$idDelta[$i], pos=$idPos[$i]\n";
+	next if (!$entryCount[$i]);
+	my $c = $firstCodes[$i]+($firstBytes[$i]<<8);
+	rgoto($idPos[$i]);
+	for(my $j = 0; $j < $entryCount[$i]; $j++) {
+	    my $x = ruint16();
+	    $x += $idDelta[$i] if ($x);
+	    printf "0x%04x:\t%d\n", $c, $x;
+	    $c++;
+	}
+	print "\n";
+    }
+
+}
+
+# FORMAT 4
+sub format4() {
+    my $segCount = ruint16() / 2;
+    my $searchRange = ruint16(); # drop
+    my $entrySelector = ruint16(); # drop
+    my $rangeShift = ruint16(); # drop
+    my @startCounts = ();
+    my @endCounts = ();
+    my @idDeltas = ();
+    my @idRangeOffsets = ();
+    print "seg: $segCount (searchRange=$searchRange, entrySelector=$entrySelector, rangeShift=$rangeShift)\n";
+    for(my $i = 0; $i < $segCount; $i++) {
+	push(@endCounts, ruint16());
+    }
+    ruint16();			# reservedPad
+    for(my $i = 0; $i < $segCount; $i++) {
+	push(@startCounts, ruint16());
+    }
+    for(my $i = 0; $i < $segCount; $i++) {
+	push(@idDeltas, rsint16());
+    }
+    for(my $i = 0; $i < $segCount; $i++) {
+	push(@idRangeOffsets, ruint16());
+    }
+    for(my $i = 0; $i < $segCount; $i++) {
+	if ($idRangeOffsets[$i]) {
+	    if ($EXPN) {
+		my $n = $startCounts[$i];
+		rpos_push();
+		rgoto(rpos() - 2*$segCount + 2*$i + $idRangeOffsets[$i]);
+		for(my $c = $startCounts[$i]; $c <= $endCounts[$i]; $c++) {
+		    printf "0x%04lx: %d\n", $n++, (ruint16()+$idDeltas[$i]) % 65536;
+		}
+		rpos_pop();
+	    } else {
+		printf "0x%04lx-0x%04lx: ",
+		  $startCounts[$i], $endCounts[$i];
+		rpos_push();
+		rgoto(rpos() - 2*$segCount + 2*$i + $idRangeOffsets[$i]);
+		for(my $c = $startCounts[$i]; $c <= $endCounts[$i]; $c++) {
+		    printf "%d,", (ruint16()+$idDeltas[$i]) % 65536;
+		}
+		rpos_pop();
+		print "\n";
+	    }
+	} else {
+	    if ($EXPN) {
+		my $c = ($startCounts[$i]+$idDeltas[$i]) % 65536;
+		for(my $n = $startCounts[$i]; $n <= $endCounts[$i]; $n++) {
+		    printf "0x%04lx: %d\n", $n, $c++;
+		}
+	    } else {
+		printf "0x%04lx-0x%04lx: %d-%d\n", 
+		  $startCounts[$i], $endCounts[$i], 
+		  ($startCounts[$i]+$idDeltas[$i]) % 65536,
+		  ($endCounts[$i]+$idDeltas[$i]) % 65536;
+	    }
+	}
+    }
+}
+
+
+if ($ARGV[0] eq '-e') { shift(@ARGV); $EXPN=1; }
+ropen(shift(@ARGV));
+
+$version = ruint16();
+$numberSubtables = ruint16();
+
+for(my $i = 0; $i < $numberSubtables; $i++) {
+    push(@platformIDs, ruint16());
+    push(@platformSpecificIDs, ruint16());
+    push(@offsets, ruint32());
+}
+
+sub disp($) {
+    my ($i) = @_;
+    rgoto($offsets[$i]);
+    my $f = ruint16();
+    my $len = ruint16();
+    my $language = ruint16();
+    print "## subtable: $i\n";
+    print "platformID: $platformIDs[$i]\n";
+    print "platformSpecificID: $platformSpecificIDs[$i]\n";
+    print "format: $f\n";
+    print "length: $len\n";
+    print "language: $language\n#\n";
+    if ($f == 0) {
+	format0();
+    } elsif ($f == 2) {
+	format2();
+    } elsif ($f == 4) {
+	format4();
+    } else {
+	print "(unsupported format)\n";
+    }
+    print "#\n\n";
+}
+
+if (0 < @ARGV) {
+    foreach my $i (@ARGV) { disp($i); }
+} else {
+    print "version: $version\n";
+    print "numberSubtables: $numberSubtables\n\n";
+    for(my $i = 0; $i < $numberSubtables; $i++) {
+	disp($i);
+    }
+}

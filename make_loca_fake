@@ -1,0 +1,34 @@
+#!/usr/bin/env perl
+# $Id: make_loca_fake,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: make_loca_fake numGlyphs fakeglyf
+#
+# build a phony loca table for a repeated glyph file (fakeglyf x numGlyphs).
+#
+#	2002/2/6, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage {
+    print "usage: make_loca_fake maxp:numGlyphs fakeglyf\n";
+    exit 1;
+}
+
+2 != @ARGV && usage();
+
+($n, $f) = @ARGV;
+@s = stat($f);
+die("stat: $f: $1") if (!@s);
+$size = $s[7];
+
+wopen('&STDOUT');
+wuint32(0);
+$x = 0;
+for($i = 0; $i < $n; $i++) {
+    $x += $size;
+    wuint32($x);
+}
+wclose();

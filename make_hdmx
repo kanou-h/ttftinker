@@ -1,0 +1,54 @@
+#!/usr/bin/env perl
+# $Id: make_hdmx,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: make_hdmx numGlyphs size1 bdf1 size2 bdf2 ...
+#
+# build a hdmx (Horizontal Device MetriX) table and dump it into stdout.
+#
+# NOTE: source format is *NOT* compatible with disp_hdmx.
+#
+#	2002/2/5, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage() {
+    print "usage: make_hdmx maxp:numGlyphs size1 bdf1 size2 bdf2 ...\n";
+    exit 1;
+}
+
+$numGlyphs = shift(@ARGV) || usage();
+@ppem = ();
+@bdfs = ();
+0 == @ARGV && usage();
+while(0 < @ARGV) {
+    push(@ppem, shift(@ARGV));
+    push(@bdfs, shift(@ARGV));
+}
+
+
+wopen('&STDOUT');
+
+# version
+wuint16(0x0000);
+wsint16(0+@bdfs);
+
+wuint32(int((($numGlyphs + 2)+3)/4)*4);
+
+for(my $i = 0; $i < 0+@bdfs; $i++) {
+    wuint8($ppem[$i]);
+    wuint8($ppem[$i]);
+    open(IN, $bdfs[$i]) || die("open: $bdfs[$i]: $!");
+    while($_ = getline(IN)) {
+	if (/^DWIDTH\s*(\d+)/) {
+	    wuint8($1);
+	}
+    }
+    close(IN);
+    my $pad = ($numGlyphs + 2) % 4;
+    wstrn("\000" x $pad) if ($pad);
+}
+
+wclose();

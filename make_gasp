@@ -1,0 +1,28 @@
+#!/usr/bin/env perl
+# $Id: make_gasp,v 1.1 2003/09/10 02:54:11 s42335 Exp $
+#
+# usage: make_gasp ppem1 flag1 ppem2 flag2 ...
+#		flag=1: dogray
+#		flag=2: gridfit
+#
+# build a gasp (Horizontal MeTriX) table and dump it into stdout.
+#
+#	2003/9/9, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage {
+    print "usage: make_gasp ppem1 flag1 ppem2 flag2 ...\n";
+    exit 1;
+}
+
+(2 <= @ARGV && @ARGV % 2 == 0) || usage();
+
+wopen('&STDOUT');
+wuint16(0);			# version
+wuint16(@ARGV/2);
+foreach my $i (@ARGV) { wuint16($i); }
+wclose();

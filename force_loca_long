@@ -1,0 +1,52 @@
+#!/usr/bin/env perl
+# $Id: force_loca_long,v 1.1 2003/09/07 23:26:44 euske Exp $
+#
+# usage: force_loca_long loca > long_loca
+#
+#	2003/8/10, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+$VALID_GLYPH_SIZE = 1024*30; 	# up to 30kbytes per glyph
+
+sub usage() {
+    print "usage: force_loca_long loca\n";
+    exit 1;
+}
+
+$ARGV[0] || usage();
+
+# read loca
+ropen($ARGV[0]);    
+@loca = ();
+$loca_long = 0;
+$prev = 0;
+while(1) {
+    my $loc;
+    eval { $loc = ruint16(); };
+    last if ($@);
+    my $s = $loc - $prev;
+    push(@loca, $loc);
+    if ($s < 0 || $VALID_GLYPH_SIZE < $s) {
+	$loca_long = 1;
+    }
+    $prev = $loc;
+}
+rclose();
+
+wopen("&STDOUT");
+if ($loca_long) {
+    print STDERR "hmmm, it looks like a long loca.\n";
+    foreach my $loc (@loca) {
+	wuint16($loc);
+    }
+} else {
+    print STDERR "hmmm, it looks like a short loca.\n";
+    foreach my $loc (@loca) {
+	wuint32($loc*2);
+    }
+}
+wclose();

@@ -1,0 +1,18 @@
+#!/usr/bin/env perl
+# $Id: list_gryph_width,v 1.1 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp EBLC_EBDT | list_gryph_width 
+#
+# lists the widths of each glyph.. (obvious in purpose)
+
+$glyph = 0;
+while(<>) {
+    chop;
+    if (/^COMMENT GLYPH +(\d+)/) {
+	$glyph = $1;
+    } elsif (/^DWIDTH +(\d+) +(\d+)/) {
+	if ($glyph) {
+	    print "$glyph: $1 $2\n";
+	}
+    }
+}

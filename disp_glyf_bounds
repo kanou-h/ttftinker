@@ -1,0 +1,62 @@
+#!/usr/bin/env perl
+# $Id: disp_glyf_bounds,v 1.1 2003/09/07 23:26:44 euske Exp $
+#
+# usage: disp_glyf_bounds glyf loca
+#
+# display the boundaries of each glyph.
+#
+#	2003/9/7, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage() {
+    print "usage: disp_glyf_bounds [-m] glyf loca\n";
+    exit 1;
+}
+
+if ($ARGV[0] eq "-m") {
+    $maxmin = 1;
+    shift(@ARGV);
+}
+(2 != @ARGV) && usage();
+($src_glyf, $src_loca) = @ARGV;
+
+# read loca
+($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,
+$size,$atime,$mtime,$ctime,$blksize,$blocks) = stat($src_loca);
+$nchars = ($size / 4)-1;
+ropen($src_loca);
+for(my $i = 0; $i < $nchars+1; $i++) {
+    $loca_offset[$i] = ruint32();
+}
+rclose();
+
+# read glyf
+ropen($src_glyf);
+$min_xMin = $min_yMin = 32767;
+$max_xMax = $max_yMax = -32768;
+for(my $i = 0; $i < $nchars; $i++) {
+    rgoto($loca_offset[$i]);
+    rsint16();			# numberOfContours: ignored
+    $xMin1 = rsint16();
+    $yMin1 = rsint16();
+    $xMax1 = rsint16();
+    $yMax1 = rsint16();
+    if ($maxmin) {
+	$min_xMin = $xMin1 if ($xMin1 < $min_xMin);
+	$min_yMin = $yMin1 if ($yMin1 < $min_yMin);
+	$max_xMax = $xMax1 if ($max_xMax < $xMax1);
+	$max_yMax = $yMax1 if ($max_yMax < $yMax1);
+    } else {
+	print "$i: $loca_offset[$i]: xMin=$xMin1, yMin=$yMin1, xMax=$xMax1, yMax=$yMax1\n";
+    }
+}
+rclose();
+
+if ($maxmin) {
+    # for hhea.src
+    print "maximal bounds: ($min_xMin, $min_yMin)-($max_xMax, $max_yMax)\n";
+}

@@ -1,0 +1,18 @@
+#!/usr/bin/env perl
+# $Id: disp_maxp,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_maxp maxp
+#    or: disp_maxp -    (from stdin)
+#
+# display the content of maxp (MAXimum Profile) table.
+# output format is compatible with make_maxp.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_form.pl';
+require 'form_maxp.pl';
+
+disp_form(@ARGV);

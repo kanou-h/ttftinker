@@ -1,0 +1,25 @@
+#!/usr/bin/env perl
+# $Id: ttfsum,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: ttfsum table1 table2 ...
+#
+# display the total checksum of given files.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+require 'lib_ttfdir.pl';
+
+if (0 == @ARGV) {
+    print "usage: $0 tablefile ...\n";
+    exit 1;
+}
+
+$s=0;
+foreach $ttf (@ARGV) {
+    $s = addint($s, ttf_calc_sum($ttf));
+}
+printf "0x%lx\n", $s;

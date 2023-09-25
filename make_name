@@ -1,0 +1,87 @@
+#!/usr/bin/env perl
+# $Id: make_name,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: make_name name
+#
+# build a name table and dump it into stdout.
+# source format is compatible with disp_name.
+#
+# NOTE: \u-notification chars are converted into UTF16.
+#       other codings (such as SJIS) are not converted.
+#
+# BUGS: UTF16 conversion is still poor.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage {
+    print "usage: make_name name.src\n";
+    exit 1;
+}
+
+$ARGV[0] || usage();
+open(IN, $ARGV[0]) || die("open: $ARGV[0]: $!");
+while($_ = getline(IN)) {
+    next if (! /^.*:\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)/);
+    my ($pid, $psid, $langid, $nameid) = ($1, $2, $3, $4);
+    push(@platformIDs, $pid);
+    push(@platformSpecificIDs, $psid);
+    push(@languageIDs, $langid);
+    push(@nameIDs, $nameid);
+    my $s = '';
+    while(<IN>) {
+	chop;
+	last if ($_ eq '');
+	$s .= $_;
+    }
+    $s =~ s/\\n/\r\n/g;
+    if (($pid == 0) ||
+	($pid == 3)) {
+	# UTF16 kludge
+	my @c = split(//, $s);
+	my $s1 = '';
+	while(0 < @c) {
+	    if ($c[0] eq "\\" && $c[1] eq 'u') {
+		$s1 .= pack("H4", $c[2].$c[3].$c[4].$c[5]);
+		shift(@c);shift(@c);shift(@c);shift(@c);shift(@c);shift(@c);
+	    } else {
+		$s1 .= "\000" . $c[0];
+		shift(@c);
+	    }
+	}
+	$s = $s1;
+    }
+    push(@strings, $s);
+}
+close(IN);
+
+$numberNameRecords = 0+@platformIDs;
+
+wopen('&STDOUT');
+
+# formatSelector: 0
+wuint16(0x0000);
+# numberNameRecords
+wuint16($numberNameRecords);
+# strorageOffset = 2+2+2+ (2+2+2+2+2+2)*$numberNameRecords;
+wuint16(2+2+2 + (2+2+2+2+2+2)*$numberNameRecords);
+
+$pos = 0;
+for(my $i = 0; $i < $numberNameRecords; $i++) {
+    wuint16($platformIDs[$i]);
+    wuint16($platformSpecificIDs[$i]);
+    wuint16($languageIDs[$i]);
+    wuint16($nameIDs[$i]);
+    wuint16(length($strings[$i]));
+    wuint16($pos);
+    $pos += length($strings[$i]);
+}
+for(my $i = 0; $i < $numberNameRecords; $i++) {
+    wstrn($strings[$i]);
+}
+
+wclose();

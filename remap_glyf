@@ -1,0 +1,130 @@
+#!/usr/bin/env perl
+# $Id: remap_glyf,v 1.2 2003/09/07 23:26:44 euske Exp $
+#
+# usage: remap_glyf mode glyf loca src_cmap dest_cmap
+#
+# remap glyf and loca table into a different cmap.
+# the mode should be either "l"(generating loca) or "g"(generating glyf).
+#
+#	2003/1/9, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage() {
+    print "usage: remap_glyf {l|g|h} src_glyf src_loca src_hmtx numOfHMetrics src_cmap dest_cmap\n";
+    exit 1;
+}
+
+(7 != @ARGV) && usage();
+($outmode, $src_glyf, $src_loca, $src_hmtx, $numofHMetrics, $src_cmap, $dest_cmap) = @ARGV;
+($outmode ne 'l' && $outmode ne 'g' && $outmode ne 'h') && usage();
+
+# read loca
+($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,
+$size,$atime,$mtime,$ctime,$blksize,$blocks) = stat($src_loca);
+$nchars = ($size / 4)-1;
+ropen($src_loca);
+for(my $i = 0; $i < $nchars+1; $i++) {
+    $loca_offset[$i] = ruint32();
+}
+rclose();
+
+# read glyf
+ropen($src_glyf);
+for(my $i = 0; $i < $nchars; $i++) {
+    # now at $loca_offset[$i]:
+    if (0 < $loca_offset[$i+1] - $loca_offset[$i]) {
+	$glyf_table[$i] = rstrn($loca_offset[$i+1] - $loca_offset[$i]);
+    }
+}
+rclose();
+
+# read hmtx
+ropen($src_hmtx);
+my $advanceWidth;
+for(my $i = 0; $i < $numofHMetrics; $i++) {
+    $advanceWidth = ruint16(); # preserve for the tail part
+    $aw_table[$i] = $advanceWidth;
+    $lsb_table[$i] = rsint16();
+    #print STDERR "$aw_table[$i]; $lsb_table[$i]\n";
+}
+for(my $i = $numofHMetrics; $i < $nchars; $i++) {
+    $aw_table[$i] = $advanceWidth;
+    $lsb_table[$i] = rsint16();
+}
+rclose();
+    
+# read src_cmap:
+#   src_glyfnum{0x3000} == 2
+#   src_glyfnum{0x3001} == 3
+#   ...
+open(IN, $src_cmap) || die("open: $src_cmap: $!");
+while(<IN>) {
+    chop; 
+    # $src_glyfnum is a mapping from CHARACTER_CODE to GLYPH_NUMBER in the source font.
+    if (!/^\s*\#/) { split; $src_glyfnum{$_[0]} = $_[1]; }
+}
+close(IN);
+
+# read dest_cmap:
+#   dest_charnum{2} = 0x20
+#   dest_charnum{3} = 0x21
+#   ...
+$max_dest_glyfnum = 0;
+open(IN, $dest_cmap) || die("open: $dest_cmap: $!");
+while(<IN>) {
+    chop; 
+    if (!/^\s*\#/) { 
+	# $dest_charnum is a mapping from GLYPH_NUMBER to CHARACTER_CODE in the dest font.
+	split; $dest_charnum{$_[1]} = $_[0]; 
+	$max_dest_glyfnum = $_[1] if ($max_dest_glyfnum < $_[1]);
+    }
+}
+close(IN);
+
+# handle special glyf.
+$dest_charnum{'0'} = '0';
+$src_glyfnum{'0'} = '0';
+
+# remapping
+$pos = 0;
+wopen('&STDOUT');
+for(my $gdest = 0; $gdest <= $max_dest_glyfnum; $gdest++) {
+    # gdest: the glyph number in a new font.
+    if ($outmode eq 'l') {
+	wuint32($pos);
+    } 
+    my $c = $dest_charnum{$gdest};
+    my $aw = 0;
+    my $lsb = 0;
+    # c: the corresponding character number for the glyph gdest.
+    if ($c ne '') {
+	my $gsrc = $src_glyfnum{$c};
+	# gsrc: the glyph number corresponding to c in the source font.
+	if ($gsrc ne '') {
+	    my $g1 = $glyf_table[$gsrc];
+	    # g1: the glyph data of gsrc.
+	    if ($outmode eq 'g') {
+		wstrn($g1);
+		if (!length($g1)) {
+		    print STDERR "warning: empty glyph: $c\n";
+		}
+	    }
+	    ($aw, $lsb) = ($aw_table[$gsrc], $lsb_table[$gsrc]);
+	    $pos += length($g1);
+	} else {
+	    print STDERR "warning: nonexistent glyph: $c\n";
+	}
+    }
+    if ($outmode eq 'h') {
+	wuint16($aw);
+	wsint16($lsb);
+    }
+}
+if ($outmode eq 'l') {
+    wuint32($pos);
+}
+wclose();

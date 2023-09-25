@@ -1,0 +1,27 @@
+#!/usr/bin/env perl
+# $Id: repeatfile,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: repeatfile n file
+#
+# repeat the given file n times
+# (to forge phony cvt/glyf tables).
+#
+#	2002/2/6, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+($n, $f) = @ARGV;
+ropen($f);
+$s = '';
+while(my $x = rstrn($BUFSIZ)) {
+    $s .= $x;
+}
+
+wopen('&STDOUT');
+for($i = 0; $i < $n; $i++) {
+    wstrn($s);
+}
+wclose();

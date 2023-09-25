@@ -1,0 +1,176 @@
+#!/usr/bin/env perl
+# $Id: ttfpack,v 1.6 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: ttfpack header table1 table2 ...
+#
+# pack given tables into one ttf file and dump it into stdout.
+# the basename of each file is used as a table name.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+require 'lib_ttfdir.pl';
+
+sub usage {
+    print "usage: $0 header file1 file2 ...\n";
+    exit 1;
+}
+
+$h = shift(@ARGV) || usage();
+
+$ttf_font_type = pack("N", eval($h));
+
+# ttf_builddir_from_args()
+sub ttf_builddir_from_args(@) {
+    my $pos = 0;
+    foreach my $f (@_) {
+	my $t = $f;
+	$t =~ s/^.*\///;
+	$t =~ s/_s/\//g;
+	$t =~ s/_u/_/g;
+	$t = substr($t . '    ', 0, 4);
+	push(@ttf_fontdir_types, $t);
+	$ttf_fontdir_files{$t} = $f;
+	my @s = stat($f);
+	if (! @s) { 
+	    err("stat: $f: $1");
+	    next; 
+	}
+	$ttf_fontdir_offset{$t} = $pos;
+	$ttf_fontdir_length{$t} = $s[7];
+	$pos += $s[7];
+	$pos += (4- ($pos % 4)) if ($pos % 4);
+    }
+}
+
+ttf_builddir_from_args(@ARGV);
+die("invalid head length") if ($ttf_fontdir_length{'head'} != 54);
+
+# write data
+sub cattype1($) {
+    ropen($_[0]);
+    my $len = 0;
+    while(my $x = rstrn($BUFSIZ)) {
+	wstrn($x);
+	$len += length($x);
+    }
+    # padding to make the data length multiple of 4
+    wstrn("\000" x (4-($len % 4))) if ($len % 4);
+    rclose();
+}
+
+# make header
+sub make_header() {
+    $header = '';
+    
+    my $n = 0 + @ttf_fontdir_types;
+    $header .= sstr32($ttf_font_type); # font type
+    $header .= suint16($n);	# num of tables
+    my $x = 1;
+    for($i=0; $x <= $n; $i++) { $x *= 2; }
+    $x /= 2; $i--;
+    $header .= suint16($x * 16); # searchRange
+    $header .= suint16($i);	# entrySelector
+    $header .= suint16(($n - $x)*16); # rangeShift
+}
+
+# make directory
+sub make_directory() {
+    $directory = '';
+    my $datastart = length($header) + 16*@ttf_fontdir_types;
+    #foreach my $t (sort_tables(@ttf_fontdir_types)) {
+    foreach my $t (sort(@ttf_fontdir_types)) {
+	$directory .= sstr32($t);
+	if ($t eq 'head') {
+	    $ttf_table_sums{$t} = calc_sum($headdata);
+	} else {
+	    $ttf_table_sums{$t} = ttf_calc_sum($ttf_fontdir_files{$t});
+	}
+	$directory .= suint32($ttf_table_sums{$t});
+	$directory .= suint32($ttf_fontdir_offset{$t} + $datastart);
+	$directory .= suint32($ttf_fontdir_length{$t});
+    }
+}
+
+# sort tables in their optimized order recommended in OpenType Spec.
+# patched by 18 (Dec 16, 2002).
+# ...but it turned to be not working for Windows, so cut off, sorry (by 1, dec 20 2002).
+%TTtables = ( 'head' => 20, 'hhea' => 19, 'maxp' => 18, 'OS/2' => 17,
+	      'hmtx' => 16, 'LTSH' => 15, 'VDMX' => 14, 'hdmx' => 13,
+	      'cmap' => 12, 'fpgm' => 11, 'prep' => 10, 'cvt ' =>  9,
+	      'loca' =>  8, 'glyf' =>  7, 'kern' =>  6, 'name' =>  5,
+	      'post' =>  4, 'gasp' =>  3, 'PCLT' =>  2, 'DSIG' =>  1 );
+%OTtables = ( 'head' =>  8, 'hhea' =>  7, 'maxp' =>  6, 'OS/2' =>  5,
+	      'name' =>  4, 'cmap' =>  3, 'post' =>  2, 'CFF ' =>  1 );
+sub sort_tables(@) {
+    if (grep(/^CFF $/, @_)) {
+        sort { $OTtables{$b} <=> $OTtables{$a} || $a cmp $b } @_;
+    } else {
+	sort { $TTtables{$b} <=> $TTtables{$a} || $a cmp $b } @_;
+    }
+}
+
+# There is a kind of integrity check in ttf fontfiles.
+# A ttf file must satisfy the following conditions:
+#
+#   1. ttfFileSum = 0xB1B0AFBA
+#   2. dirHeadSum = realHeadSum - checksumAdjustment
+#
+# where
+#   ttfFileSum := the sum of the whole ttf file
+#   dirHeadSum := the sum of the 'head' table in the ttf directory
+#   realHeadSum := the real sum of the 'head' table
+#   checksumAdjustment := a field in the 'head' table
+
+# This means the 'head' sum contained in the ttf directory is not real.
+# This should be the sum computed when checksumAdjustment is zero.
+# But actually checksumAdjustment may contain a value other then zero
+# to adjust the whole file sum to '0xB1B0AFBA'.
+
+# So the calculation of the checksumAdjustment is very tricky and
+# complicated. Here is what they write in OpenType document:
+#
+#    checksumAdjustment:
+#    To compute: set it to 0, calculate the checksum for the 'head'
+#    table and put it in the table directory, sum the entire font as
+#    uint32, then store (0xB1B0AFBA - sum). The checksum for the 'head'
+#    table will not be wrong. That is OK.
+
+# read 'head'
+ropen('head');
+$headdata = rstrn(54);
+rclose();
+
+# set checksumAdjustment to 0
+substr($headdata, 8, 4) = suint32(0);
+make_header();
+
+make_directory();
+
+# calc total sum
+$totalsum = addint(calc_sum($header) + calc_sum($directory));
+foreach my $t (@ttf_fontdir_types) {
+    $totalsum = addint($totalsum, $ttf_table_sums{$t});
+}
+
+# modify 'head'
+$checksumaAdjustment = subint(0xB1B0AFBA, $totalsum);
+substr($headdata, 8, 4) = suint32($checksumaAdjustment);
+
+# main
+wopen('&STDOUT');
+wstrn($header);
+wstrn($directory);
+
+foreach my $t (@ttf_fontdir_types) {
+    if ($t eq 'head') {
+	# head is 54 byte length, so 54+2 = 56 = 7*8
+	wstrn($headdata . ("\000" x 2));
+    } else {
+	cattype1($ttf_fontdir_files{$t});
+    }
+}

@@ -1,0 +1,65 @@
+#!/usr/bin/env perl
+# $Id: make_EBSC,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: make_EBSC EBSC
+#
+# build an (Embedded Bitmap Scaling Control) table from EBSC.src
+#
+# NOTE: source format is *NOT* compatible with disp_EBSC.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+require 'lib_metric.pl';
+
+sub usage {
+    print "usage: make_EBSC EBSC\n";
+    exit 1;
+}
+
+$ARGV[0] || usage();
+
+@sizes = ();
+
+# read
+open(IN, $ARGV[0]) || die("open: $ARGV[0]: $!");
+%metric = ();
+while($_ = getline(IN)) {
+    split(/:\s+/);
+    $metric{$_[0]} = eval($_[1]);
+    if ($metric{'ppem'} && $metric{'subst'} &&
+	$metric{'ascender'} && $metric{'descender'} && $metric{'widmax'}) {
+	push(@sizes, [ $metric{'ppem'},
+		       $metric{'subst'},
+		       $metric{'ascender'},
+		       $metric{'descender'},
+		       $metric{'widmax'} ]);
+	%metric = ();
+    }
+}
+close(IN);
+
+wopen('&STDOUT');
+wuint32(0x00020000);
+wuint32(0+@sizes);
+foreach my $r (@sizes) {
+    my ($ppem, $subst, $ascender, $descender, $widmax) = @$r;
+    wsbitLineMetrics($ascender, 
+		     $descender,
+		     $widmax, 
+		     1,0,0,
+		     0, 0, $ascender, $descender);
+    wsbitLineMetrics($ascender, 
+		     $descender,
+		     $widmax, 
+		     0,1,0,
+		     0, 0, -$widmax, 0);
+    wuint8($ppem);
+    wuint8($ppem);
+    wuint8($subst);
+    wuint8($subst);
+}
+wclose();

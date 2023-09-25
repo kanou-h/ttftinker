@@ -1,0 +1,67 @@
+#!/usr/bin/env perl
+# $Id: make_EBDT,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: make_EBDT BDF1 BDF2 ...
+#
+# build an EBDT(Embedded Bitmap DaTa, or bdat in MacOS) table from BDF(BIT)
+# and dump it into stdout.
+#
+# BUGS: currently only imageFormat 6 is supported.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+require 'lib_metric.pl';
+
+
+sub usage() {
+    print "usage: make_EBDT BDF1 BDF2 ...\n";
+    exit 1;
+}
+
+0 == @ARGV && usage();
+
+
+sub format6 {
+    open(IN, $_[0]) || die("open: $_[0]: $!");
+    my $bw, $bh, $hox, $hoy, $hbytes, $had, $vad;
+    my $b = 0, $bits;
+    while(<IN>) {
+	chop;
+	my @F = split(/\s+/);
+	my $c = shift(@F);
+	if ($c eq 'BBX') {
+	    ($bw, $bh, $hox, $hoy) = @F;
+	    $hbytes = int(($bw+7)/8);
+	} elsif ($c eq 'DWIDTH') {
+	    ($had, $vad_dummy) = @F;
+	} elsif ($c eq 'BITMAP') {
+	    $b = 1;
+	    $bits = '';
+	} elsif ($c eq 'ENDCHAR') {
+	    wbigGlyphMetrics($bh, $bw, $hox, $hoy+$bh, $had, 0, 0, $bh);
+	    wstrn($bits);
+	    $b = 0;
+	} elsif ($b) {
+	    $c =~ tr/./0/;
+	    $c =~ tr/@/1/;
+	    $bits .= pack('B' . $hbytes*8, $c);
+	}
+    }
+    close(IN);
+}
+
+# version number (0x00020000 fixed)
+wopen('&STDOUT');
+wuint32(0x00020000);
+
+foreach my $i (@ARGV) {
+    if ($i =~ /^:(\d+)$/) {
+	;
+    } else {
+	format6($i);
+    }
+}

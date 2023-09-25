@@ -1,0 +1,65 @@
+#!/usr/bin/env perl
+# $Id: pickchars,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: pickchars idfile bdf1 bdf2 ...
+#
+# pick up the glyphs specified in idfile and dump it sorted.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage() {
+    print "usage: pickchars idfile bdf1 bdf2 ...\n";
+    exit 1;
+}
+
+$ARGV[0] || usage();
+
+
+%glyph = ();
+sub font1 {
+    open(IN, $_[0]) || die("open: $_[0]: $!");
+    my $b = 0, $e = 0;
+    while(<IN>) {
+	my @F = split(/\s+/);
+	my $c = shift(@F);
+	if ($c eq 'STARTCHAR') {
+	    $b = 1;
+	    $e = 0;
+	    $s = '';
+	} 
+	$s .= $_ if ($b);
+	if ($c eq 'ENCODING') {
+	    $e = $F[0];
+	}
+	if ($c eq 'ENDCHAR') {
+	    $b = 0;
+	    if ($e && $enc{$e}) {
+		$glyph{$e} = $s;
+	    }
+	}
+    }
+    close(IN);
+}
+
+$f=shift(@ARGV);
+open(IN, $f) || die("open: $f: $!");
+while($_ = getline(IN)) {
+    split(/\s+/);
+    $enc{eval($_[0])} = 1;
+}
+close(IN);
+
+foreach my $i (@ARGV) {
+    &font1($i);
+}
+$gid = 1;
+foreach my $i (sort {$a<=>$b} keys(%glyph)) {
+    print "COMMENT GLYPH $gid\n";
+    print $glyph{$i};
+    $gid++;
+}

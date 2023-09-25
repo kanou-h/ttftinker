@@ -1,0 +1,18 @@
+#!/usr/bin/env perl
+# $Id: disp_hhea,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_hhea hhea
+#    or: disp_hhea -    (from stdin)
+#
+# display the content of hhea (Horizontal metrics table HEAder) table.
+# output format is compatible with make_hhea.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_form.pl';
+require 'form_hhea.pl';
+
+disp_form(@ARGV);

@@ -1,0 +1,39 @@
+#!/usr/bin/env perl
+# $Id: disp_EBSC,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_EBSC EBSC
+#    or: disp_EBSC -     (from stdin)
+#
+# display the content of EBSC (Embedded Bitmap Scaling Control) table.
+#
+# NOTE: output format is *NOT* compatible with my make_EBSC...
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+require 'lib_metric.pl';
+
+sub usage {
+    print "usage: disp_EBSC EBSC\n";
+    exit 1;
+}
+
+$ARGV[0] || usage();
+ropen($ARGV[0]);
+
+$version = ruint32();
+$numSizes = ruint32();
+printf "version: 0x%08lx\n", $version;
+print "numSizes: $numSizes\n\n";
+
+for(my $i = 0; $i < $numSizes; $i++) {
+    dispsbitLineMetrics("hori_", rsbitLineMetrics());
+    dispsbitLineMetrics("vert_", rsbitLineMetrics());
+    print "ppem: ", ruint8(), ", ", ruint8(), "\n";
+    print "substitutePpem: ", ruint8(), ", ", ruint8(), "\n\n";
+}
+
+rclose();

@@ -1,0 +1,97 @@
+#!/usr/bin/env perl
+# $Id: disp_name,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_name name (DONT USE STDIN)
+#
+# display the content of name table.
+# output format is compatible with make_name.
+#
+# NOTE: UTF16 codings are converted into \u-notification.
+#       other codings (such as SJIS) are not converted.
+#
+# BUGS: UTF16 conversion is still poor.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage {
+    print "usage: disp_name name\n";
+    exit 1;
+}
+
+@nameidcomments = (
+   'Copyright notice',		# 0
+   'Font Family name',		# 1
+   'Font Subfamily name',	# 2
+   'Unique font identifier',	# 3
+   'Full font name',		# 4
+   'Version string',		# 5
+   'Postscript name',		# 6
+   'Trademark',			# 7
+   'Manufacturer Name',		# 8
+   'Designer',			# 9
+   'Description',		# 10
+   'URL Vendor',		# 11
+   'URL Designer',		# 12
+   'License Description',	# 13
+   'License Info URL',		# 14
+   'Reserved; set to zero.',	# 15
+   'Preferred Family (windows only)', # 16
+   'Preferred Subfamily (windows only)', # 17
+   'Compatible Full (Macintosh only)', # 18
+   'Sample text',		# 19
+   'PostScript CID findfont name', # 20
+   );
+
+
+$ARGV[0] || usage();
+ropen($ARGV[0]);
+
+$formatSelector = &ruint16();
+$numberNameRecords = &ruint16();
+$storageOffset = &ruint16();
+
+print "formatSelector: $formatSelector\n\n";
+
+for(my $i = 0; $i < $numberNameRecords; $i++) {
+    push(@platformIDs, ruint16());
+    push(@platformSpecificIDs, ruint16());
+    push(@languageIDs, ruint16());
+    push(@nameIDs, ruint16());
+    push(@strLengths, ruint16());
+    push(@strOffsets, ruint16());
+}
+
+sub convuni($) {
+    my @s = split(//, $_[0]);
+    if ($s[0] eq "\000") {
+	return $s[1];
+    } else {
+	return '\u' . unpack("H2", $s[0]) . unpack("H2", $s[1]);
+    }
+}
+
+for(my $i = 0; $i < $numberNameRecords; $i++) {
+    my $pid = $platformIDs[$i];
+    my $psid = $platformSpecificIDs[$i];
+    my $langid = $languageIDs[$i];
+    my $nameid = $nameIDs[$i];
+    print "# $nameidcomments[$nameid]\n";
+    print "plat,platspec,lang,name: $pid, $psid, $langid, $nameid\n";
+    rgoto($storageOffset + $strOffsets[$i]);
+    $s = rstrn($strLengths[$i]);
+    $s =~ s/\n/\\n/g;
+    $s =~ tr/\r//d;
+    if (($pid == 0) ||
+	($pid == 3)) {
+	# UTF16 kludge
+	$s =~ s/(..)/convuni($1)/ge;
+    }
+    print "$s\n\n";
+}
+
+rclose();

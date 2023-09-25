@@ -1,0 +1,30 @@
+#!/usr/bin/env perl
+# $Id: ttfcat,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: ttfcat ttf_or_ttc [ttcindex:]type1 [ttcindex:]type2 ...
+#
+# dump a specified table in the given ttf file.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+require 'lib_ttfdir.pl';
+
+sub usage {
+    print "usage: $0 ttffile type1 type2 ...\n";
+    exit 1;
+}
+
+$ttf = shift(@ARGV) || &usage();
+
+
+ropen($ttf);
+ttf_readdir_from_ttf();
+wopen("&STDOUT");
+foreach my $i (@ARGV) {
+    $i = ttf_autocd($i);
+    ttf_cat_type($i);
+}

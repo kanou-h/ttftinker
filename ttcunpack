@@ -1,0 +1,71 @@
+#!/usr/bin/env perl
+# $Id: ttcunpack,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: ttcunpack ttcfile destdir
+#
+# unpack a ttc file and dump the TTFs into each directory.
+# (several tables may be shared, so unpacked size may be larger)
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+require 'lib_ttfdir.pl';
+
+sub usage {
+    print "usage: $0 ttcfile destdir\n";
+    exit 1;
+}
+
+$ttf = shift(@ARGV) || usage();
+$dir = shift(@ARGV) || usage();
+
+
+ropen($ttf);
+$ttcsignature = ruint32();	# drop.
+$ttcversion = ruint32();	# drop.
+$numttfdirs = ruint32();
+@diroffsets = ();
+
+for(my $i=0; $i < $numttfdirs; $i++) {
+    push(@diroffsets, ruint32());
+}
+
+mkdir($dir, 0755);
+chdir($dir) || die("can't make directory: $dir: $!");
+
+for(my $ndir=0; $ndir < $numttfdirs; $ndir++) {
+    mkdir($ndir, 0755);
+    chdir($ndir) || die("can't make directory: $dir/$ndir: $!");
+    rgoto($diroffsets[$ndir]);
+    ttf_readdir_from_ttf();
+    # header
+    open(OUT, "> ttfdir");
+    printf OUT "0x%08lx\n", unpack("N", $ttf_font_type);
+    foreach my $t (sort {$ttf_fontdir_offset{$a}<=>$ttf_fontdir_offset{$b}}
+		   @ttf_fontdir_types) {
+	my $f = $t;    
+	$f =~ s/_/_u/g;
+	$f =~ s/\//_s/g;
+	$f =~ s/^ *//;
+	$f =~ s/ *$//;
+	print OUT "$f\n";
+    }
+    close(OUT);
+    
+    # dump each type
+    foreach my $t (@ttf_fontdir_types) {
+	my $f = $t;
+	$f =~ s/_/_u/g;
+	$f =~ s/\//_s/g;
+	$f =~ s/^ *//;
+	$f =~ s/ *$//;
+	wopen($f);
+	ttf_cat_type($t);
+	wclose();
+    }
+    chdir("..");
+}
+rclose();

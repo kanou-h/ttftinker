@@ -1,0 +1,148 @@
+#!/usr/bin/env perl
+# $Id: merge_glyf,v 1.1 2003/09/07 23:26:44 euske Exp $
+#
+# usage: merge_glyf {l|g|c} glyf0 loca0 cmap.src0 glyf1 loca1 cmap.src1 ...
+#
+#	2003/8/10, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage() {
+    print "usage: merge_glyf {l|g|h|c} glyf0 loca0 hmtx0 numOfHMetrics0 cmap.src0\n               glyf1 loca1 hmtx1 numOfHMetrics1 cmap.src1 ...\n";
+    exit 1;
+}
+
+(scalar(@ARGV) % 5 == 1) || usage();
+$outmode = shift(@ARGV);
+($outmode eq 'l' || $outmode eq 'g' || $outmode eq 'h' || $outmode eq 'c') || usage();
+
+@global_glyf = ();
+@global_aw = ();
+@global_lsb = ();
+%global_cmap = ();
+# loopy
+for($mrg = 0; ; $mrg++) {
+    $glyf = shift(@ARGV) || last;
+    $loca = shift(@ARGV);
+    $hmtx = shift(@ARGV);
+    $numofHMetrics = shift(@ARGV);
+    $cmap = shift(@ARGV);
+    #print STDERR "glyf: $glyf, loca:$loca, hmtx:$hmtx, numofHMetrics:$numofHMetrics, cmap:$cmap\n";
+
+    @loca_offset = ();
+    @glyf_table = ();
+    @aw_table = ();
+    @lsb_table = ();
+    %cmap_table = ();
+
+    # read loca
+    ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,
+     $size,$atime,$mtime,$ctime,$blksize,$blocks) = stat($loca);
+    $nchars = ($size / 4)-1;
+    ropen($loca);
+    for(my $i = 0; $i < $nchars+1; $i++) {
+	$loca_offset[$i] = ruint32();
+    }
+    rclose();
+
+    # read glyf
+    ropen($glyf);
+    for(my $i = 0; $i < $nchars; $i++) {
+	# now at $loca_offset[$i]:
+	if (0 < $loca_offset[$i+1] - $loca_offset[$i]) {
+	    $glyf_table[$i] = rstrn($loca_offset[$i+1] - $loca_offset[$i]);
+	}
+    }
+    rclose();
+    
+    # read hmtx
+    ropen($hmtx);
+    my $advanceWidth;
+    for(my $i = 0; $i < $numofHMetrics; $i++) {
+	$advanceWidth = ruint16(); # preserve for the tail part
+	$aw_table[$i] = $advanceWidth;
+	$lsb_table[$i] = rsint16();
+    }
+    for(my $i = $numofHMetrics; $i < $nchars; $i++) {
+	$aw_table[$i] = $advanceWidth;
+	$lsb_table[$i] = rsint16();
+    }
+    rclose();
+    
+    # read src_cmap:
+    open(IN, $cmap) || die("open: $src_cmap: $!");
+    while(<IN>) {
+	chop;
+	if (!/^\s*\#/) { split; $cmap_table{$_[0]} = $_[1]; }
+    }
+    close(IN);
+    
+    if ($mrg == 0) {
+	# initial
+	for(my $i = 0; $i < @glyf_table; $i++) {
+	    $global_glyf[$i] = $glyf_table[$i];
+	    $global_aw[$i] = $aw_table[$i];
+	    $global_lsb[$i] = $lsb_table[$i];
+	}
+	foreach my $c (keys(%cmap_table)) {
+	    $global_cmap{$c} = $cmap_table{$c};
+	}
+    } else {
+	# merging
+	for my $c (keys(%cmap_table)) {
+	    my $g = $global_cmap{$c};
+	    my $glyf1 = $glyf_table[$cmap_table{$c}];
+	    my $aw1 = $aw_table[$cmap_table{$c}];
+	    my $lsb1 = $lsb_table[$cmap_table{$c}];
+#	    print STDERR "merge: $c($cmap_table{$c}) -> $g ",length($glyf1),"\n";
+	    if ($g) {
+		$global_glyf[$g] = $glyf1;
+		$global_aw[$g] = $aw1;
+		$global_lsb[$g] = $lsb1;
+	    } else {
+		print STDERR "warning: glyph newly added: $c\n";
+		my $newg = scalar(@global_glyf);
+		$global_glyf[$newg] = $glyf1;
+		$global_aw[$newg] = $aw1;
+		$global_lsb[$newg] = $lsb1;
+		$global_cmap{$c} = $newg;
+	    }
+	}
+    }
+}
+
+# output
+if ($outmode eq 'l') {
+    # loca output
+    wopen('&STDOUT');
+    $pos = 0;
+    wuint32($pos);
+    foreach my $glyf1 (@global_glyf) {
+	$pos += length($glyf1);
+	wuint32($pos);
+    }
+    wclose();
+} elsif ($outmode eq 'g') {
+    # glyf output
+    wopen('&STDOUT');
+    foreach my $glyf1 (@global_glyf) {
+	wstrn($glyf1);
+    }
+    wclose();
+} elsif ($outmode eq 'h') {
+    # hmtx output...fungaa
+    wopen('&STDOUT');
+    for ($i = 0; $i < @global_aw; $i++) {
+	wuint16($global_aw[$i]);
+	wsint16($global_lsb[$i]);
+    }
+    wclose();
+} elsif ($outmode eq 'c') {
+    # cmap.src output
+    foreach my $c (sort(keys(%global_cmap))) {
+	printf "%s: %d\n", $c, $global_cmap{$c};
+    }
+}

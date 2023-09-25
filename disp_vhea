@@ -1,0 +1,18 @@
+#!/usr/bin/env perl
+# $Id: disp_vhea,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_vhea vhea
+#    or: disp_vhea -    (from stdin)
+#
+# display the content of vhea (Vertical metrics table HEAder) table.
+# output format is compatible with make_vhea.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_form.pl';
+require 'form_vhea.pl';
+
+disp_form(@ARGV);

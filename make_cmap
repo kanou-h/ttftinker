@@ -1,0 +1,405 @@
+#!/usr/bin/env perl
+# $Id: make_cmap,v 1.5 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: make_cmap encodings1 format1 platform1 platspec1 lang1
+#                   ...
+#                  encodingsn formatn platformn platspecn langn
+#
+# build a cmap (Character code MAPping) table and dump it into stdout.
+#
+# NOTE: the source format is *NOT* compatible with disp_cmap.
+#
+# BUGS: only format 0, 2, 4 are supported.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage {
+    print "usage: make_cmap encodings1 format1 plat1 platspec1 lang1 ...\n";
+    exit 1;
+}
+
+$ARGV[0] || &usage();
+
+
+## initialization
+
+$globalPos = 0;
+@platformIDs = ();
+@platformSpecificIDs = ();
+@globalOffsets = ();
+@subTables = ();
+
+$globalOffset = 0;
+
+
+
+# here @enc maps sjis-charcodes to glyphs.
+
+# read mapping table
+sub readenc($) {
+    @enc = ();
+    open(IN, $_[0]) || die("open: $_[0]: $!");
+    while($_ = getline(IN)) {
+	split(/\s+/);
+	$enc[eval($_[0])] = eval($_[1]);
+    }
+    close(IN);
+}
+
+
+
+# Format 0 (fixed)
+sub doFormat0($$$) {
+    my ($pid, $psid, $langid) = @_;
+
+    my $s = '';
+    # format 0
+    $s .= suint16(0);
+    # length 262 (fixed)
+    $s .= suint16(2+2+2+256);
+    # language
+    $s .= suint16($langid);
+    for(my $i = 0; $i < 256; $i++) {
+	my $x = $enc[$i] || 0;
+	$s .= suint8($x);
+    }
+
+    push(@platformIDs, $pid);
+    push(@platformSpecificIDs, $psid);
+    push(@globalOffsets, $globalPos);
+    push(@subTables, $s);
+    $globalPos += length($s);
+}
+
+# Format 2
+sub doFormat2($$$) {
+    my ($pid, $psid, $langid) = @_;
+
+    # GENERATE indexArrays in advance
+
+    my $numSubHeaders = 0;
+    my @indexArrays = ();
+    my @indexArrayOffsets = ();
+    my @subHeaderFirstCode = ();
+    my @subHeaderEntryCount = ();
+    my @subHeaderIdDelta = ();
+    my @subHeaderArrayRef = ();
+    my $subHeaderKeys = ();
+
+    # subheader 1
+    push(@subHeaderFirstCode, 0);
+    push(@subHeaderEntryCount, 256);
+    push(@subHeaderIdDelta, 0);
+    push(@subHeaderArrayRef, 0);
+    $numSubHeaders++;
+    push(@subHeaderKeys, 8*$numSubHeaders);
+    my $indexArray1 = '';
+    for(my $i = 0; $i < 256; $i++) {
+	$indexArray1 .= suint16($enc[$i]);
+    }
+    push(@indexArrays, $indexArray1);
+
+    # dummy subheader (contains no glyphs)
+    push(@subHeaderFirstCode, 0);
+    push(@subHeaderEntryCount, 0);
+    push(@subHeaderIdDelta, 0);
+    push(@subHeaderArrayRef, -1);
+    $numSubHeaders++;
+
+    for(my $b1 = 1; $b1 < 256; $b1++) {
+	# SCAN the line.
+	# search from left
+	my $b2left, $b2right;
+	for ($b2left = 0; $b2left < 256; $b2left++) {
+	    last if ($enc[($b1 << 8) | $b2left]);
+	}
+	# search from right
+	for ($b2right = 255; 0 <= $b2right; $b2right--) {
+	    last if ($enc[($b1 << 8) | $b2right]);
+	}
+	#print STDERR "$b1: $b2left - $b2right\n";
+	if ($b2left <= $b2right) {
+	    # CHARS found.
+	    # compute glyph delta
+	    $delta = 65535;
+	    for (my $b2 = $b2left; $b2 <= $b2right; $b2++) {
+		my $c = ($b1 << 8) | $b2;
+		$delta = $enc[$c] if ($enc[$c] && $enc[$c] < $delta);
+	    }
+	    $delta--;
+	    # compute indexArray
+	    my $indexArray1 = '';
+	    for (my $b2 = $b2left; $b2 <= $b2right; $b2++) {
+		my $c = ($b1 << 8) | $b2;
+		my $g = $enc[$c];
+		$g -= $delta if ($g);
+		$indexArray1 .= suint16($g);
+	    }
+	    # check if it's duplicated?
+	    my $n;
+	    for($n = 0; $n < @indexArrays; $n++) {
+		last if ($indexArrays[$n] eq $indexArray1);
+	    }
+	    # if the index of array is a new one, $n must be @indexArrays,
+	    # which is (the index of the last indexArrays) + 1. so
+	    # it will be automatically added.
+	    $indexArrays[$n] = $indexArray1;
+	    push(@subHeaderFirstCode, $b2left);
+	    push(@subHeaderEntryCount, $b2right - $b2left + 1);
+	    push(@subHeaderIdDelta, $delta);
+	    push(@subHeaderArrayRef, $n);
+	    push(@subHeaderKeys, 8*$numSubHeaders);
+	    $numSubHeaders++;
+	} else {
+	    # CHARS notfound 
+	    # dummy subheader
+	    push(@subHeaderKeys, 0);
+	}
+    }
+
+    # COMPUTE offsets to the subtables
+    my $offset = 0;
+    foreach my $i (@indexArrays) {
+	push(@indexArrayOffsets, $offset);
+	$offset += length($i);
+    }
+
+    # finally GENERATE the subtable.
+
+    my $s = '';
+    # format 2
+    $s .= suint16(2);
+    # length 
+    $s .= suint16(2+2+2 + 2*256 + 8*$numSubHeaders + $offset);
+    # language
+    $s .= suint16($langid);
+    # subHeaderKeys
+    foreach my $i (@subHeaderKeys) {
+	$s .= suint16($i);
+    }
+    # subHeaders
+    my $toIndexArray = 8*$numSubHeaders - 6;
+    for(my $i = 0; $i < $numSubHeaders; $i++) {
+	# firstCode
+	$s .= suint16($subHeaderFirstCode[$i]);
+	# entryCount
+	$s .= suint16($subHeaderEntryCount[$i]);
+	# idDelta
+	$s .= suint16($subHeaderIdDelta[$i]);
+	# idRangeOffset
+	my $ref = $subHeaderArrayRef[$i];
+	if ($ref == -1) {
+	    $s .= suint16(0);
+	} else {
+	    $s .= suint16($indexArrayOffsets[$ref] + $toIndexArray);
+	}
+	$toIndexArray -= 8;
+    }
+    # indexArrays
+    foreach my $i (@indexArrays) {
+	$s .= $i;
+    }
+
+    push(@platformIDs, $pid);
+    push(@platformSpecificIDs, $psid);
+    push(@globalOffsets, $globalPos);
+    push(@subTables, $s);
+    $globalPos += length($s);
+}
+
+
+# Format 4
+sub doFormat4($$$) {
+    my ($pid, $psid, $langid) = @_;
+
+    @startCounts = ();
+    @endCounts = ();
+    @idDeltas = ();
+    
+    my $c = 0, $segCount = 0;
+    while($c < 0xffff) {
+	# search a first char of a segment
+	while($c < 0xffff && !$enc[$c]) { $c++; }
+	if ($c < 0xffff) {
+	    my $g = $enc[$c];
+	    push(@startCounts, $c);
+	    push(@idDeltas, $g-$c);
+	    # search contiguous chars
+	    while($enc[$c] == $g) { $c++; $g++; }
+	    push(@endCounts, $c-1);
+	    $segCount++;
+	}
+    }
+    push(@startCounts, 0xffff);
+    push(@endCounts, 0xffff);
+    push(@idDeltas, 1);
+    $segCount++;
+
+    # patch by 18, Sep. 13/2002
+    # Unify contiguous segments whose length is 1.
+    my $seg, $endseg;
+    my @glyphIdArray = ();
+    my @idRangeOffset = ();
+    for ($seg = 0; $seg < $segCount - 1; $seg++) {
+        if ($startCounts[$seg] == $endCounts[$seg] &&
+            $startCounts[$seg + 1] < 0xffff) {
+            for ($endseg = $seg + 1; $endseg < $segCount ; $endseg++) {
+                last if ($startCounts[$endseg] != $endCounts[$endseg] ||
+                         $startCounts[$endseg] != $startCounts[$endseg-1] + 1);
+            }
+            $endseg--;
+            if ($seg < $endseg) {
+                $endCounts[$seg] = $endCounts[$endseg];
+                $idRangeOffset[$seg] = scalar(@glyphIdArray) + 1; # +1 for >0
+                foreach $s ($seg..$endseg) {
+                    $idDeltas[$s] += $startCounts[$s];
+                }
+                push(@glyphIdArray, @idDeltas[$seg..$endseg]);
+                $idDeltas[$seg] = 0;
+                $segCount -= $endseg-$seg;
+                splice(@startCounts, $seg+1, $endseg-$seg);
+                splice(@endCounts, $seg+1, $endseg-$seg);
+                splice(@idDeltas, $seg+1, $endseg-$seg);
+            }
+        }
+    }
+    for ($seg = 0; $seg < $segCount; $seg++) {
+        if ($idRangeOffset[$seg]) {
+            $idRangeOffset[$seg] += ($segCount - $seg - 1);
+            $idRangeOffset[$seg] *= 2;
+        } else {
+            $idRangeOffset[$seg] = 0;
+        }
+    }
+
+    my $searchRange = 2, $entrySelector = 1;
+    while($searchRange <= $segCount) {
+	$searchRange *= 2;
+	$entrySelector++;
+    }
+    $entrySelector--;
+
+    # make subtable
+    my $s = '';
+    # format 4
+    $s .= suint16(4);
+    # length 
+    $s .= suint16(2+2+2 + 8 + 8*$segCount+2 + 
+		  2*scalar(@glyphIdArray));
+    # language
+    $s .= suint16($langid);
+    
+    $s .= suint16(2*$segCount);
+    $s .= suint16($searchRange);
+    $s .= suint16($entrySelector);
+    $s .= suint16(2*$segCount - $searchRange);
+    # print STDERR "$segCount, $searchRange, $entrySelector\n";
+    foreach my $i (@endCounts) {
+	$s .= suint16($i);
+    }
+    $s .= suint16(0x0000);	# resarvedPad
+    foreach my $i (@startCounts) {
+	$s .= suint16($i);
+    }
+    foreach my $i (@idDeltas) {
+	$s .= ssint16($i);
+    }
+    foreach my $i (@idRangeOffset) {
+	$s .= suint16($i);
+    }
+    foreach my $i (@glyphIdArray) {
+	$s .= suint16($i);
+    }
+    
+    push(@platformIDs, $pid);
+    push(@platformSpecificIDs, $psid);
+    push(@globalOffsets, $globalPos);
+    push(@subTables, $s);
+    $globalPos += length($s);
+}
+
+    
+## write cmap.
+
+sub writeCmap() {
+    wopen('>&STDOUT');
+    # version number (0x0000)
+    wuint16(0x0000);
+    # numberSubtables
+    my $numSubtables = 0+@subTables;
+    wuint16($numSubtables);
+    my $headerLen = 2+2 + 8*$numSubtables;
+    for(my $i = 0; $i < $numSubtables; $i++) {
+	wuint16($platformIDs[$i]);
+	wuint16($platformSpecificIDs[$i]);
+	wuint32($globalOffsets[$i] + $headerLen);
+    }
+    foreach my $s (@subTables) {
+	wstrn($s);
+    }
+    wclose();
+}
+
+
+## main
+
+# supported format: 0, 2, 4
+
+# platformID: 0 (Unicode)
+#	platformSpecificID: 0 (Unicode 1.0)
+#	platformSpecificID: 1 (Unicode 1.1)
+#	platformSpecificID: 2 (ISO 10646:1993)
+#	platformSpecificID: 3 (Unicode 2.0)
+#	languageID: (not defined in Unicode)
+#
+# platformID: 1 (Macintosh)
+#	platformSpecificID: 0 (Roman)
+#	platformSpecificID: 1 (Japanese)
+#	platformSpecificID: 2 (Chinese)
+#	...
+#	languageID: 0 (English)
+#	languageID: 11 (Japanese)
+#	...
+#
+# platformID: 3 (Microsoft)
+#	platformSpecificID: 0 (Symbol)
+#	platformSpecificID: 1 (Unicode)
+#	platformSpecificID: 2 (ShiftJIS)
+#	...
+#	languageID: 1033 (US English)
+#	languageID: 1041 (Japanese)
+#	...
+#
+
+# make_cmap encodings1 format1 platformID1 platformSpecificID1 languageID1
+#           encodings2 format2 platformID2 platformSpecificID2 languageID2
+#           ...
+
+# prepare subtables
+while(@ARGV) {
+    my $f = shift(@ARGV);
+    my $fmt = shift(@ARGV);
+    my $pid = shift(@ARGV);
+    my $psid = shift(@ARGV);
+    my $langid = shift(@ARGV);
+
+    readenc($f);
+    if ($fmt == 0) {
+	doFormat0($pid, $psid, $langid);
+    } elsif ($fmt == 2) {
+	doFormat2($pid, $psid, $langid);
+    } elsif ($fmt == 4) {
+	doFormat4($pid, $psid, $langid);
+    } else {
+	die("unsupported format: $fmt");
+    }
+}
+
+## write it.
+writeCmap();

@@ -1,0 +1,41 @@
+#!/usr/bin/env perl
+# $Id: disp_hdmx,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_hdmx hdmx numGlyphs (DONT USE STDIN)
+#
+# display the content of hdmx (Horizontal Device MetriX) table.
+#
+# NOTE: output format is *NOT* compatible with my make_hdmx...
+#
+#	2002/2/5, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_util.pl';
+
+sub usage() {
+    print "usage: disp_hdmx hdmx maxp:numGlyphs\n";
+    exit 1;
+}
+
+2 == @ARGV || usage();
+($f, $numGlyphs) = @ARGV;
+ropen($f);
+
+$version = ruint16();
+$numRecords = rsint16();
+$sizerec = ruint32();
+printf "version: 0x%04x\n", $version;
+print "sizerec: $sizerec\n";
+
+for(my $i = 0; $i < $numRecords; $i++) {
+    rgoto($sizerec * $i + 2+2+4);
+    print "ppem: ", ruint8(), "\n";
+    print "maxwidth: ", ruint8(), "\n";
+    for(my $n = 0; $n < $numGlyphs; $n++) {
+	print "glyph $n: ", ruint8(), "\n";
+    }
+    print "\n";
+}
+rclose();

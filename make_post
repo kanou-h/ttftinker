@@ -1,0 +1,17 @@
+#!/usr/bin/env perl
+# $Id: make_post,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: make_post post.src
+#
+# build a post (POSTscript) table.
+# source format is compatible with disp_post.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_form.pl';
+require 'form_post.pl';
+
+make_form(@ARGV);

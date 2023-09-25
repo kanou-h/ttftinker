@@ -1,0 +1,18 @@
+#!/usr/bin/env perl
+# $Id: disp_head,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: disp_head head
+#    or: disp_head -    (from stdin)
+#
+# display the content of head/bhea (HEADer / Bitmap HEAder) table.
+# output format is compatible with make_head.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_form.pl';
+require 'form_head.pl';
+
+disp_form(@ARGV);

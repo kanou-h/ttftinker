@@ -1,0 +1,60 @@
+#!/usr/bin/env perl
+# $Id: ttfls,v 1.4 2003/08/05 16:26:37 s42335 Exp $
+#
+# usage: ttfls ttf_or_ttc
+#
+# display a ttf directory. it now supports ttcs.
+#
+#	2002/2/3, by 1@2ch
+#	* public domain *
+#
+
+$p=$0; $p=~s:[^/]+$::; push(@INC,$p);
+require 'lib_ttfdir.pl';
+
+if (0 == @ARGV) {
+    print "usage: $0 ttffile\n";
+    exit 1;
+}
+
+%uniq_offset = ();
+
+sub doit($) {
+    printf "TTF 0x%08lx '%s'\n", unpack('N',$ttf_font_type), $ttf_font_type;
+    print "TYPE        SIZE            OFFSET             SUM\n";
+    my $num = $_[0];
+    foreach my $t (@ttf_fontdir_types) {
+	my $offset = $ttf_fontdir_offset{$t};
+	if ($uniq_offset{$offset}) {
+	    printf "%s\t%8ld\t0x%08lx\t0x%08lx\t(=%s)\n", 
+	    $t,
+	    $ttf_fontdir_length{$t},
+	    $offset,
+	    $ttf_fontdir_sum{$t},
+	    $uniq_offset{$offset};
+	} else {
+	    printf "%s\t%8ld\t0x%08lx\t0x%08lx\n", 
+	    $t,
+	    $ttf_fontdir_length{$t},
+	    $offset,
+	    $ttf_fontdir_sum{$t};
+	    $uniq_offset{$offset} = "$num:$t";
+	}
+    }
+}
+
+foreach $ttf (@ARGV) {
+    ropen($ttf);
+    ttf_readdir_from_ttf();
+    rclose();
+    if ($ttf_is_ttc) {
+	printf "TTC version=0x%08x, fonts=%d\n", $ttc_version, $ttc_num_ttfdirs;
+	for(my $i = 0; $i < $ttc_num_ttfdirs; $i++) {
+	    printf "** FONT %d:\n", $i;
+	    ttf_cd($i);
+	    doit($i);
+	}
+    } else {
+	doit(0);
+    }
+ }
